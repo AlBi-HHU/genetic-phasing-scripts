@@ -1,0 +1,135 @@
+CHR = 3
+
+REFNAME = 'StSOLv1.1'
+GFAFILE = 'assembly-graph/spud_altus_hifiasm.r_utg.gfa'
+REFPATH = '/srv/homes/schrinner/data/geneticphasing/reference/SolyntusV1.1.fasta'
+SAMPLE = 'Altus'
+MERGEDSAMPLE = 'Altus_470bp'
+REF_VCF = '/srv/homes/schrinner/data/geneticphasing/parents/'
+
+if CHR == 3:
+	CONTIGS = ['utg000017l', 'utg000207l', 'utg000906l', 'utg002881l']
+	CHROMOSOMES = ['ch03']
+	START = 60269000
+	END = 60504000
+	REF_VCF += 'chr3.60Mx.parents.decluttered.vcf'
+elif CHR == 4:
+	CONTIGS = ['utg001299l', 'utg000434l', 'utg001711l', 'utg002063l']
+	CHROMOSOMES = ['ch04']
+	START = 71586000
+	END = 71947000
+	REF_VCF += 'chr4.71Mx.parents.decluttered.vcf'
+elif CHR == 5:
+	CONTIGS = ['utg000081l', 'utg000133l', 'utg000257l', 'utg000837l']
+	CHROMOSOMES = ['ch05']
+	START = 56711000
+	END = 57066000
+	REF_VCF += 'chr5.56Mx.parents.decluttered.vcf'
+
+rule all:
+	input:
+		expand('{chromosome}/{chromosome}.sync.vcf.gz', chromosome=CHROMOSOMES),
+		expand('{chromosome}/{chromosome}.sync.vcf.gz.csi', chromosome=CHROMOSOMES)
+		
+rule extract_sequences:
+	input:
+		GFAFILE
+	output:
+		'alignments/all_graph_nodes_single.fasta'
+	shell:
+		'python3 gfa2fasta.py {input} {output}'
+		
+rule create_bam:
+	input:
+		'alignments/all_graph_nodes_single.fasta'
+	output:
+		'alignments/all_graph_nodes_single.bam'
+	shell:
+		'minimap2 -ax asm20 {REFPATH} {input} -t 64 -o {output}'
+		
+rule sort_bam:
+	input:
+		bam='{prefix}.bam',
+		bai='{prefix}.bam.bai',
+		ref=REFPATH
+	output:
+		'{prefix}_sorted.bam'
+	shell:
+		'samtools sort {input.bam} -m 16G -@ 24 -o {output} --reference {input.ref}'
+		
+rule index_bam:
+	input:
+		'{prefix}.bam'
+	output:
+		'{prefix}.bam.bai'
+	shell:
+		'samtools index {input}'
+
+rule create_paf:
+	input:
+		'{prefix}.fasta'
+	output:
+		'{prefix}.paf'
+	shell:
+		'minimap2 -x asm20 {REFPATH} {input} -t 64 --cs -o {output}'
+		#'pbmm2 align --preset CCS {REFPATH} {input} -t 64 --cs -o {output}'
+
+rule extract_contig:
+	input:
+		'alignments/all_graph_nodes_single.paf'
+	output:
+		'{chr}/{chr}.{contig}.paf'
+	shell:
+		'grep "{wildcards.contig}" {input} | grep "{REFNAME}{wildcards.chr}" > {output}'
+		
+rule create_vcf:
+	input:
+		'{chr}/{chr}.{contig}.paf'
+	output:
+		'{chr}/{chr}.{contig}.single.vcf.gz'
+	shell:
+		'sort -k6,6 -k8,8 {input} | paftools.js call -f {REFPATH} -s {SAMPLE} -l 5000 -L 5000 - | bgzip > {output}'
+		
+rule merge_vcf:
+	input:
+		files=expand('{{chr}}/{{chr}}.{contig}.single.vcf.gz', contig=CONTIGS), 
+		indices=expand('{{chr}}/{{chr}}.{contig}.single.vcf.gz.csi', contig=CONTIGS)
+	output:
+		'{chr}/{chr}.combined_all.vcf.gz'
+	shell:
+		'bcftools merge -0 -m both {input.files} --force-samples | bgzip > {output}'
+		
+rule cut_vcf:
+	input:
+		'{chr}/{chr}.combined_all.vcf.gz',
+		'{chr}/{chr}.combined_all.vcf.gz.csi'
+	output:
+		'{chr}/{chr}.combined.cut.vcf.gz'
+	shell:
+		'bcftools view {input} -O z -o {output} -r {REFNAME}{wildcards.chr}:{START}-{END}'
+		
+rule merge_samples:
+	input:
+		'{chr}/{chr}.combined.cut.vcf.gz'
+	output:
+		'{chr}/{chr}.combined.vcf.gz'
+	shell:
+		'bgzip -d < {input} | python3 merge_monoploid.py {MERGEDSAMPLE} | bgzip > {output}'
+		
+rule synchronize_samples:
+	input:
+		'{chr}/{chr}.combined.vcf.gz'
+	output:
+		'{chr}/{chr}.sync.vcf.gz'
+	shell:
+		'bgzip -d  < {input} | python3 synchronize_alt_alleles.py {REF_VCF} | bgzip > {output}'
+
+#'bcftools norm -m+ -D -O v {input} | python3 synchronize_alt_alleles.py {REF_VCF} | bgzip > {output}'
+
+rule index_vcf:
+	input:
+		'{prefix}.vcf.gz'
+	output:
+		'{prefix}.vcf.gz.csi'
+	shell:
+		'bcftools index {input} -f'

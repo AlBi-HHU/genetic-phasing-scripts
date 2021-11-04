@@ -1,0 +1,29 @@
+# Settings for data
+REFNAME = 'StSOLv1.1'
+CHROMOSOMES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+COMPLEXITY_LEVELS = [0]
+WINDOW_SIZES = [250]
+CUTOFFS = [0, 2]
+SAMPLE = 'Altus_470bp'
+
+# Path to data
+PARENTPATH = '/srv/homes/schrinner/data/geneticphasing/parents/'
+PROGENYPATH = '/srv/homes/schrinner/data/geneticphasing/progeny/'
+OUTPUTPATH = 'output-whole/'
+PEDFILE = '/srv/homes/schrinner/whatshap/whatshap-genetic/ped.txt'
+
+rule all:
+    input:
+        expand('{}chr{{chromosome}}.genetic.altus.c{{complexity}}.w{{window}}.cut{{cutoff}}.new14.vcf'.format(OUTPUTPATH), chromosome=CHROMOSOMES, complexity=COMPLEXITY_LEVELS, window=WINDOW_SIZES, cutoff=CUTOFFS)
+
+rule genetic_phase:
+    input:
+        parent=PARENTPATH+'chr{chrom}.parents.decluttered.vcf',
+        progeny=PROGENYPATH+'chr{chrom}.progeny.decluttered.vcf.gz',
+        pedfile=PEDFILE
+    output:
+        OUTPUTPATH+'chr{chrom}.genetic.altus.c{complexity}.w{window}.cut{cutoff}.new14.vcf'
+    log:
+        OUTPUTPATH+'chr{chrom}.genetic.altus.c{complexity}.w{window}.cut{cutoff}.new14.log'
+    shell:
+        'whatshap polyphasegenetic {input.parent} {input.pedfile} -P {input.progeny} -p 4 -o {output} --sample Altus_470bp -C {wildcards.complexity} --scoring-window {wildcards.window} --ratio-cutoff {wildcards.cutoff} --distrust-parent-genotypes 2> {log}'
