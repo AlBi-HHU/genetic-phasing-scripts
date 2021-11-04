@@ -33,6 +33,9 @@ Run the snakemake pipeline `Snakefile-Whole`.
 All files marked with either `(zenodo)`, `(public)` or `(ncbi)`, depending on whether the required data was uploaded on zenodo, is publicly available or available via an NCBI project. Please refer to the paper for further details. The NCBI data might be only available at a later point in time.
 
 Link to Zenodo data: https://zenodo.org/record/5645743
+
 Link to parental sequencing data: https://www.ncbi.nlm.nih.gov/bioproject/PRJNA718240/
+
 Link to progeny sequencing data: https://www.ncbi.nlm.nih.gov/bioproject/PRJEB48582/
+
 Link to hifi read data for Altus: https://www.ncbi.nlm.nih.gov/sra/SUB10617521
