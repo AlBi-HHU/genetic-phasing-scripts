@@ -1,5 +1,5 @@
 # genetic-phasing-scripts
-Collections of scripts for data generation and evaluation for Recomb 2022 submission: "Genetic Polyploid Phasing using Marker Signals from low-depth Progeny Samples"
+Collections of scripts for data generation and evaluation for Recomb-Seq 2022 submission: "Genetic Polyploid Phasing using Marker Signals from low-depth Progeny Samples"
 
 # Recreating ground truth region
 
@@ -15,9 +15,14 @@ Run the snakemake pipeline `Snakefile-ASM` three times setting the chromosome va
 Requires:
 1. regions of parental VCF files (zenodo)
 2. regions of progeny VCF files (zenodo)
-3. ped file, specifying the pedigree relationships (zenodo)
+3. ped files, specifying the pedigree relationships (zenodo)
 
-Run the snakemake pipeline `Snakefile-Phase` 
+Run the snakemake pipeline `Snakefile-Genetic` with rule `all`
+
+If the downsampled parental coverage is to be reproduced as well, it requires:
+4. regions of downsampled parental VCF files (zenodo)
+
+Run the snakemake pipeline `Snakefile-Genetic` with rule `downsample`
 
 # Recreating the whole-chromosome results
 

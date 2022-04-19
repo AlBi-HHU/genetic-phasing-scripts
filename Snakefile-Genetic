@@ -1,0 +1,177 @@
+# Settings for data
+REGIONS = ['ch03.60Mx', 'ch04.71Mx', 'ch05.56Mx']
+REFNAME = 'StSOLv1.1'
+COMPLEXITY_LEVELS = [0, 2]
+WINDOW_SIZES = [250]
+CUTOFFS = [0]
+SAMPLESIZES = ['0.25', '0.5']
+PROGSAMPLES = ['150', '125', '100', '75', '60', '50', '40', '30', '25', '20', '15']
+RUNSPERSIZE = 10
+SAMPLE = 'Altus_470bp'
+
+# Path to data
+PARENTPATH = '/srv/homes/schrinner/data/geneticphasing/parents/'
+PROGENYPATH = '/srv/homes/schrinner/data/geneticphasing/progeny/'
+CCSPATH = '/srv/homes/schrinner/data/geneticphasing/ccs-reads/'
+OUTPUTPATH = 'output/'
+CSVPATH = 'csv/'
+PEDFILE = '/srv/homes/schrinner/data/geneticphasing/peds/ped.txt'
+PEDPREFIX = '/srv/homes/schrinner/data/geneticphasing/peds/ped'
+READPATH = '/srv/homes/schrinner/data/geneticphasing/parents/aligned_reads/'
+REFPATH = '/srv/homes/schrinner/data/geneticphasing/reference/'
+
+START, END, CHRNAME = dict(), dict(), dict()
+
+START['03'] = '60269000'
+END['03'] = '60504000'
+CHRNAME['03'] = 'ch03'
+
+START['04'] = '71586000'
+END['04'] = '71947000'
+CHRNAME['04'] = 'ch04'
+
+START['05'] = '56711000'
+END['05'] = '57066000'
+CHRNAME['05'] = 'ch05'
+
+rule all:
+    input:
+        expand('{}{{region}}.genetic.altus.c{{complexity}}.w{{window}}.cut{{cutoff}}.new14.vcf'.format(OUTPUTPATH), region=REGIONS, complexity=COMPLEXITY_LEVELS, window=WINDOW_SIZES, cutoff=CUTOFFS),
+        expand('{}{{region}}.genetic.altus.c{{complexity}}.w{{window}}.cut{{cutoff}}.sub{{subsize}}-{{run}}.new14.vcf'.format(OUTPUTPATH), region=REGIONS, complexity=COMPLEXITY_LEVELS, window=WINDOW_SIZES, cutoff=CUTOFFS, subsize=PROGSAMPLES, run=range(RUNSPERSIZE)),
+        expand('{}{{region}}.genetic.altus.c{{complexity}}.w{{window}}.cut{{cutoff}}.sub{{subsize}}-{{run}}.new14.tsv'.format(CSVPATH), region=REGIONS, complexity=COMPLEXITY_LEVELS, window=WINDOW_SIZES, cutoff=CUTOFFS, subsize=PROGSAMPLES, run=range(RUNSPERSIZE)),
+        expand('{}{{region}}.genetic.altus.c{{complexity}}.w{{window}}.cut{{cutoff}}.sub193-1.new14.tsv'.format(CSVPATH), region=REGIONS, complexity=COMPLEXITY_LEVELS, window=WINDOW_SIZES, cutoff=CUTOFFS),
+        expand('{}{{region}}.genetic.altus.c{{complexity}}.w{{window}}.cut{{cutoff}}.avg.csv'.format(CSVPATH), region=REGIONS, complexity=COMPLEXITY_LEVELS, window=WINDOW_SIZES, cutoff=CUTOFFS),
+        expand('{}{{region}}-{{samplesize}}.genetic.altus.c{{complexity}}.w{{window}}.cut{{cutoff}}.new14.tsv'.format(CSVPATH), region=REGIONS, complexity=COMPLEXITY_LEVELS, window=WINDOW_SIZES, cutoff=CUTOFFS, samplesize=SAMPLESIZES),
+
+rule genetic_phase:
+    input:
+        parent=PARENTPATH+'ch{chr, \d+}.{region, \d+Mx}{samplesize, [\d\.-]*}.parents.decluttered.vcf',
+        progeny=PROGENYPATH+'ch{chr, \d+}.{region, \d+Mx}.progeny.decluttered.vcf.gz',
+        pedfile=PEDFILE
+    output:
+        OUTPUTPATH+'ch{chr, \d+}.{region, \d+Mx}{samplesize, [\d\.-]*}.genetic.altus.c{complexity}.w{window}.cut{cutoff,\d+}.new14.vcf'
+    shell:
+        'whatshap polyphasegenetic {input.parent} {input.pedfile} -P {input.progeny} -p 4 -o {output} --sample Altus_470bp -C {wildcards.complexity} --scoring-window {wildcards.window} --ratio-cutoff {wildcards.cutoff} --distrust-parent-genotypes'
+        
+rule genetic_phase_subsampled:
+    input:
+        parent=PARENTPATH+'{region}.parents.decluttered.vcf',
+        progeny=PROGENYPATH+'{region}.progeny.decluttered.vcf.gz',
+        pedfile=PEDPREFIX+'{subsize}_{run}.txt'
+    output:
+        OUTPUTPATH+'{region}.genetic.altus.c{complexity}.w{window}.cut{cutoff,\d+}.sub{subsize}-{run}.new14.vcf'
+    log:
+        OUTPUTPATH+'{region}.genetic.altus.c{complexity}.w{window}.cut{cutoff}.sub{subsize}-{run}.new14.log'
+    shell:
+        'whatshap polyphasegenetic {input.parent} {input.pedfile} -P {input.progeny} -p 4 -o {output} --sample Altus_470bp -C {wildcards.complexity} --scoring-window {wildcards.window} --ratio-cutoff {wildcards.cutoff} --distrust-parent-genotypes 2> {log}'
+
+rule compare:
+    input:
+        phase=OUTPUTPATH+'ch{chr, \d+}.{region}.genetic.altus.{suffix}.vcf',
+        truth='ch{chr, \d+}/ch{chr, \d+}.combined.vcf.gz'
+    output:
+        CSVPATH+'ch{chr, \d+}.{region}.genetic.altus.{suffix}.tsv'
+    shell:
+        'whatshap compare {input.phase} {input.truth} -p 4 --tsv-pairwise {output}'
+
+rule create_csv:
+    input:
+        expand(CSVPATH+'{{region}}.genetic.altus.c{{complexity}}.{{options}}.sub{subsize}-{run}.new14.tsv', subsize=PROGSAMPLES, run=range(RUNSPERSIZE)),
+        expand(CSVPATH+'{{region}}.genetic.altus.c{{complexity}}.{{options}}.sub{subsize}-{run}.new14.tsv', subsize=[193], run=[1])
+    output:
+        CSVPATH+'{region}.genetic.altus.c{complexity}.{options}.avg.csv'
+    shell:
+        'python3 compare_samplescaling.py {CSVPATH} {output} {wildcards.region} {wildcards.complexity}'
+
+rule cut_vcf:
+    input:
+        vcf=PARENTPATH+'ch{chr, \d+}{samplesize, [\d\.-]*}.parents.vcf.gz',
+        index=PARENTPATH+'ch{chr, \d+}{samplesize, [\d\.-]*}.parents.vcf.gz.csi'
+    output:
+        PARENTPATH+'ch{chr, \d+}.{region, \d+Mx}{samplesize, [\d\.-]*}.parents.decluttered.vcf'
+    run:
+        ch = CHRNAME[wildcards.chr]
+        start = START[wildcards.chr]
+        end = END[wildcards.chr]
+        #shell('bgzip < {input.vcf} > {input.vcf}.gz')
+        #shell('bcftools index {input}.gz')
+        shell('bcftools view {input} -O v -o {output}.cluttered.vcf -r {REFNAME}{ch}:{start}-{end}')
+        shell('python3 declutter_vcf.py {output}.cluttered.vcf {output}')
+        #shell('rm {input}.gz')
+        #shell('rm {input}.gz.csi')
+        shell('rm {output}.cluttered.vcf')
+        
+# Creating downsampled files
+
+rule extract_chromosome:
+    input:
+        bam='{prefix}.srt.bam',
+        bai='{prefix}.srt.bam.bai'
+    output:
+        bam='{prefix}.srt.ch{chr, \d+}.bam',
+        bai='{prefix}.srt.ch{chr, \d+}.bam.bai'
+    run:
+        shell("sambamba view -f sam -h -o {output.bam}.sam {input.bam} {REFNAME}ch{wildcards.chr}:1-90000000")
+        shell("sed -i '/chloroplast/d' {output.bam}.sam | sed -i '/mitochondrial/d' {output.bam}.sam")
+        shell("sambamba view -f bam -h -S -o {output.bam} {output.bam}.sam")
+        shell("rm {output.bam}.sam")
+        
+rule downsample_bam:
+    input:
+        bam='{prefix}.srt.ch{chr}.bam',
+        bai='{prefix}.srt.ch{chr}.bam.bai'
+    output:
+        bam='{prefix}.srt.ch{chr}-{percentage, [\.\d]+}.unsorted.bam'
+    run:
+        shell('gatk DownsampleSam -I {input.bam} -O {output.bam} -P {wildcards.percentage}')
+
+rule sort_bam:
+    input:
+        bam='{prefix}.srt.ch{chr}-{percentage, -*\d*\.*\d*}.unsorted.bam'
+    output:
+        bam='{prefix}.srt.ch{chr}-{percentage, -*\d*\.*\d*}.bam',
+        bai='{prefix}.srt.ch{chr}-{percentage, -*\d*\.*\d*}.bam.bai'
+    shell:
+        'sambamba sort -o {output.bam} {input.bam}'
+
+rule call_variants:
+    input:
+        bam=READPATH+'{prefix}.bam',
+        bai=READPATH+'{prefix}.bam.bai',
+        ref=REFPATH+'SolyntusV1.1.fasta',
+        fai=REFPATH+'SolyntusV1.1.fasta.fai',
+        dict=REFPATH+'SolyntusV1.1.dict'
+    output:
+        gvcf=PARENTPATH+'{prefix}.bam.g.vcf.gz'
+    shell:
+        'gatk --java-options "-Xmx4g" HaplotypeCaller --native-pair-hmm-threads 4 -R {input.ref} -I {input.bam} -O {output.gvcf} -ERC GVCF --sample-ploidy 4'
+        
+rule merge_gvcf:
+    input:
+        altus=PARENTPATH+'Altus_470bp.SolyntusV1.1_CPMT.srt.ch{chr, \d+}-{percentage}.bam.g.vcf.gz',
+        colomba=PARENTPATH+'Colomba_470bp.SolyntusV1.1_CPMT.srt.ch{chr, \d+}-{percentage}.bam.g.vcf.gz',
+        ref=REFPATH+'SolyntusV1.1.fasta',
+        fai=REFPATH+'SolyntusV1.1.fasta.fai',
+        dict=REFPATH+'SolyntusV1.1.dict'
+    output:
+        vcf=PARENTPATH+'AC_parents.ch{chr, \d+}-{percentage}.vcf'
+    run:
+        shell('mkdir {output.vcf}.temp -p')
+        shell('gatk --java-options "-Xmx100g -Xms100g" GenomicsDBImport --variant {input.altus} --variant {input.colomba} --genomicsdb-workspace-path {output.vcf}.genomicsdb --tmp-dir {output.vcf}.temp --reader-threads 10 -L StSOLv1.1ch{wildcards.chr}')
+        shell('gatk --java-options "-Xmx40g" GenotypeGVCFs -R {input.ref} -V gendb://{output.vcf}.genomicsdb -O {output.vcf}')
+
+rule compress_vcf:
+    input:
+        PARENTPATH+'AC_parents.ch{chr, \d+}-{suffix}.vcf'
+    output:
+        vcf=PARENTPATH+'ch{chr, \d+}-{suffix}.parents.vcf.gz'
+    run:
+        shell('bgzip < {input} -o {output.vcf}')
+        
+rule index_vcf:
+    input:
+        '{prefix}.vcf.gz'
+    output:
+        '{prefix}.vcf.gz.csi'
+    run:
+        shell('bcftools index {input}')
